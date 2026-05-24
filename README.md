@@ -34,9 +34,12 @@ class TxnListView(ListAPIView):
 ```
 
 That's the migration. If `TxnSerializer` translates cleanly the endpoint
-gets the speedup on the next request. If it doesn't (say, because of a
-`SerializerMethodField`), you get a one-time warning and `.data` falls
-back to standard DRF. The endpoint keeps working either way.
+gets the speedup on the next request. `SerializerMethodField`s with a
+`-> T` return annotation are translated automatically; un-annotated
+getters work but render through a slower pydantic path until you add
+one. If translation truly fails (a custom `Field` with no scalar
+mapping), you get a one-time warning and `.data` falls back to standard
+DRF. The endpoint keeps working either way.
 
 ## Benchmark
 
@@ -132,56 +135,36 @@ encoding for error responses, hand-rolled dicts, the browsable API, and
 anything else it doesn't recognize. Safe as a project-wide default. Set
 `renderer_classes` per view if you want to roll it out gradually.
 
-### When auto-translation fails
+### SerializerMethodField
 
-If a serializer has a `SerializerMethodField` or a custom field with an
-overridden `to_representation`, the mixin emits a warning and falls
-back to standard DRF `.data`. Three ways to fix it:
-
-**1. Move the computation upstream**, into a queryset annotation or a
-model property. Then drop the `SerializerMethodField`.
+Auto-translated. The bound `get_*` method runs once per row at validate
+time against the **source object** (Django model, dict, ...), and the
+result lands in a regular pydantic field that the Rust render path
+encodes.
 
 ```python
-# before
 class TxnSerializer(FastSerializerMixin, serializers.ModelSerializer):
     formatted_amount = serializers.SerializerMethodField()
 
-    def get_formatted_amount(self, obj):
+    def get_formatted_amount(self, obj) -> str:
         return f"${obj.amount:,.2f}"
-
-# after
-class Txn(models.Model):
-    @property
-    def formatted_amount(self) -> str:
-        return f"${self.amount:,.2f}"
-
-class TxnSerializer(FastSerializerMixin, serializers.ModelSerializer):
-    formatted_amount = serializers.CharField(read_only=True)
 ```
 
-**2. Switch to explicit translation** via `from_drf` and
+Add the `-> T` return annotation. Without it the field falls back to
+`Any` (the field still renders correctly, but pydantic's Rust-side type
+validation is bypassed; you'll see a one-time warning).
+
+SMFs that hit the ORM remain *your* responsibility — the auto path
+gives you the field, not the query plan. Prefetch / annotate at the
+queryset level to avoid N+1.
+
+If the result really can't be derived from the source object, drop the
+SMF on the way through `from_drf` and replace it with a pydantic
 `@computed_field`:
 
 ```python
-from pydantic import computed_field
 from drf_fastserializers import from_drf
 
-_Base = from_drf(TxnSerializer, exclude=("formatted_amount",))
-
-class FastTxnOut(_Base):
-    @computed_field
-    @property
-    def formatted_amount(self) -> str:
-        return f"${self.amount:,.2f}"
-
-class TxnListView(ListAPIView):
-    serializer_class = FastTxnOut.drf
-    renderer_classes = [FastJSONRenderer]
-```
-
-Or pass `computed=` to skip the subclass step:
-
-```python
 FastTxnOut = from_drf(
     TxnSerializer,
     computed={
@@ -190,11 +173,21 @@ FastTxnOut = from_drf(
 )
 ```
 
-Each entry maps a field name to a `(callable, return_type)` tuple. The
-callable receives the validated pydantic instance and its result is
-exposed as a `@computed_field` on the generated schema.
+The callable receives the validated pydantic instance (so it can read
+already-resolved fields like `self.amount`) and the second tuple
+element is the return annotation.
 
-**3. Opt out for this serializer.** Set `Meta.fast = False`. The mixin
+### When auto-translation fails
+
+Custom `Field` subclasses with an overridden `to_representation` that
+isn't in the scalar table can't be auto-mapped. The mixin emits a
+one-time warning and falls back to standard DRF `.data`. Two fixes:
+
+**1. Switch to explicit translation** via `from_drf(TxnSerializer,
+exclude=("weird_field",))` and redeclare the field manually on the
+resulting `FastSerializer`.
+
+**2. Opt out for this serializer.** Set `Meta.fast = False`. The mixin
 stops trying, the warning goes away, and the endpoint stays on DRF.
 
 ### Field mapping
@@ -220,7 +213,7 @@ stops trying, the warning goes away, and the endpoint stays on DRF.
 | `ListSerializer(...)` | `list[nested FastSerializer]` |
 | `PrimaryKeyRelatedField` | `int` |
 | `StringRelatedField`, `HyperlinkedRelatedField`, `SlugRelatedField` | `str` |
-| `SerializerMethodField` | **not supported**, see workarounds above |
+| `SerializerMethodField` | annotated return type of `get_*` method (falls back to `Any`) |
 
 Field options carried through:
 

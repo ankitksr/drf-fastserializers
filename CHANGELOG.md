@@ -7,6 +7,44 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-25
+
+### Added
+- Auto-translate `SerializerMethodField` in `from_drf` and
+  `FastSerializerMixin`. The bound `get_*` method is detected on the
+  serializer class; its return annotation becomes the pydantic field
+  type and the getter runs once per row at validate time against the
+  **source object** (Django model, dict, ...), not the pydantic
+  instance. Eliminates the previous `RecursionError` when an SMF
+  reached into the source object via `computed=` workarounds.
+- `_fs_method_getters` table is attached to `from_drf`-generated
+  classes when SMFs are present, exposing the mapping for introspection
+  and for `DRFAdapter` to inject pre-resolved values via an internal
+  attribute overlay (object sources) or merged dict (mapping sources).
+
+### Changed
+- `from_drf` no longer raises `MigrationError` on
+  `SerializerMethodField`. Callers that previously caught that
+  exception to skip the field should either let the auto path run, or
+  pass the name in `exclude=` to retain the old skip-it behavior.
+- SMF fields are stripped from `is_valid` input before validation —
+  they are output-only by DRF contract; client-supplied values for
+  those names no longer reach `validated_data`.
+- `computed=` continues to take precedence over the auto path when
+  both target the same field name. `exclude=` continues to drop the
+  field entirely.
+- Mixin fallback warning now only fires for genuinely untranslatable
+  fields (custom `Field` subclasses with no scalar mapping); SMFs are
+  handled silently on the fast path.
+
+### Note
+- SMFs that hit the ORM remain the caller's responsibility. The auto
+  path matches DRF's per-row Python-side method dispatch cost; it does
+  not magically prefetch. Annotate / `select_related` at the queryset
+  level for hot endpoints.
+- Un-annotated `get_*` methods fall back to `Any` with a one-time
+  `UserWarning`. Add `-> T` for full Rust-side type validation.
+
 ## [0.2.3] - 2026-05-25
 
 ### Changed

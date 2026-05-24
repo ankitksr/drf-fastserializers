@@ -17,6 +17,8 @@ quacks like `rest_framework.serializers.Serializer` for the read path
 (`.data`) and the write path (`.is_valid()`, `.validated_data`, `.errors`).
 """
 
+import json
+from collections.abc import Callable, Mapping
 from typing import Any, ClassVar, Final
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
@@ -25,6 +27,58 @@ from ._errors import pydantic_errors_to_drf
 from ._payload import FastPayload, RawJSONBytes
 
 _UNSET: Final = object()
+
+
+class _AttrOverlay:
+    """Read-through wrapper that returns overridden values for select keys.
+
+    Used to inject pre-resolved `SerializerMethodField` results into a
+    source object (Django model, dataclass, ...) without copying it, so
+    pydantic's `from_attributes` validation reads the override for SMF
+    field names and the underlying object for everything else.
+    """
+
+    __slots__ = ("_obj", "_overrides")
+
+    def __init__(self, obj: Any, overrides: dict[str, Any]) -> None:
+        object.__setattr__(self, "_obj", obj)
+        object.__setattr__(self, "_overrides", overrides)
+
+    def __getattr__(self, name: str) -> Any:
+        overrides = object.__getattribute__(self, "_overrides")
+        if name in overrides:
+            return overrides[name]
+        return getattr(object.__getattribute__(self, "_obj"), name)
+
+
+def _overlay_one(obj: Any, getters: dict[str, Callable[[Any], Any]]) -> Any:
+    """Pre-resolve SMF getters against `obj` and inject as an overlay.
+
+    Dict sources merge directly (pydantic accepts dicts via
+    `from_attributes`). Object sources get wrapped in `_AttrOverlay`.
+    """
+    overrides = {name: g(obj) for name, g in getters.items()}
+    if isinstance(obj, Mapping):
+        merged = dict(obj)
+        merged.update(overrides)
+        return merged
+    return _AttrOverlay(obj, overrides)
+
+
+def _apply_method_overrides(
+    serializer_cls: type["FastSerializer"], source: Any, many: bool
+) -> Any:
+    """Inject SMF getter results into `source` so pydantic reads them via attrs.
+
+    Returns `source` unchanged when no SMF getters are registered (the
+    common case — only `from_drf`-generated classes carry a getter table).
+    """
+    getters = getattr(serializer_cls, "_fs_method_getters", None)
+    if not getters:
+        return source
+    if many:
+        return [_overlay_one(obj, getters) for obj in source]
+    return _overlay_one(source, getters)
 
 
 def _single_adapter(cls: type["FastSerializer"]) -> TypeAdapter:
@@ -102,7 +156,8 @@ class DRFAdapter:
         """Marker payload. `FastJSONRenderer` emits Rust-encoded bytes."""
         adapter = self._adapter()
         if self._validated is None:
-            self._validated = adapter.validate_python(self.instance)
+            source = _apply_method_overrides(self.serializer_cls, self.instance, self.many)
+            self._validated = adapter.validate_python(source)
         return FastPayload(adapter=adapter, instances=self._validated, many=self.many)
 
     # --- write path ----------------------------------------------------
@@ -111,14 +166,28 @@ class DRFAdapter:
         if self.initial_data is None:
             raise RuntimeError("is_valid() called without data; pass data=... at construction")
         adapter = self._adapter()
+        # SerializerMethodField is read-only: drop any client-supplied values
+        # for those names before validation so they cannot pollute
+        # `validated_data`. Pure-pydantic schemas (no `_fs_method_getters`)
+        # take the unmodified fast path.
+        smf_names = getattr(self.serializer_cls, "_fs_method_getters", None)
         try:
             # `FastJSONParser` hands us bytes wrapped in `RawJSONBytes`;
             # validate_json runs in Rust over those bytes, skipping the
             # Python json.loads + validate_python double-walk.
             if isinstance(self.initial_data, RawJSONBytes):
-                self._validated = adapter.validate_json(self.initial_data.raw)
+                if smf_names:
+                    decoded = json.loads(self.initial_data.raw)
+                    for name in smf_names:
+                        decoded.pop(name, None)
+                    self._validated = adapter.validate_python(decoded)
+                else:
+                    self._validated = adapter.validate_json(self.initial_data.raw)
             else:
-                self._validated = adapter.validate_python(self.initial_data)
+                data = self.initial_data
+                if smf_names and isinstance(data, Mapping):
+                    data = {k: v for k, v in data.items() if k not in smf_names}
+                self._validated = adapter.validate_python(data)
             self._errors = {}
             return True
         except ValidationError as exc:

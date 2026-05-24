@@ -10,16 +10,25 @@ any other `FastSerializer`:
         serializer_class = FastTxnOut.drf
         renderer_classes = [FastJSONRenderer]
 
-Limits: `SerializerMethodField` and DRF fields with overridden
-`to_representation` have no mechanical equivalent. The helper raises
-`MigrationError` naming the offending field; convert those manually
-using pydantic's `@computed_field`, then exclude them from `from_drf`.
+`SerializerMethodField`s are auto-translated: the bound `get_*` method is
+detected, its return annotation becomes the pydantic field type, and the
+getter is invoked once per row at validate time against the source object
+(Django model, dict, ...). Annotate `get_*` methods (`-> T`) for the
+Rust render fast path; un-annotated getters fall back to `Any` with a
+runtime warning. SMFs that hit the ORM remain the caller's
+responsibility — prefetch / annotate at the queryset level to avoid N+1.
+
+DRF fields with overridden `to_representation` still have no mechanical
+equivalent; the helper raises `MigrationError` naming the offending
+field. Convert those manually using pydantic's `@computed_field`, then
+exclude them from `from_drf`.
 """
 
+import warnings
 from collections.abc import Callable
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, get_type_hints
 from uuid import UUID
 
 from pydantic import AliasPath, Field, computed_field, create_model
@@ -78,35 +87,113 @@ def from_drf(
         name: Override the generated class name; defaults to `"<Cls>Fast"`.
         exclude: Field names to skip (use for fields you intend to drop or
             redeclare manually).
-        computed: Replace `SerializerMethodField`s with inline
-            `@computed_field`s. Map of ``field_name -> (callable, return_type)``;
-            the callable receives the pydantic instance as its sole arg.
-            Fields named here are skipped during DRF translation, then
-            attached as computed properties on the result.
+        computed: Replace fields with inline `@computed_field`s. Map of
+            ``field_name -> (callable, return_type)``; the callable
+            receives the pydantic instance as its sole arg. Takes
+            precedence over auto-SMF translation when names overlap.
 
     Returns:
         A `FastSerializer` subclass ready for `.drf` + `FastJSONRenderer`.
 
     Raises:
-        MigrationError: if any non-excluded, non-computed field has no
-            clean mapping. The exception names the field and its DRF type.
+        MigrationError: if a non-excluded, non-computed field has no
+            clean mapping, or if the source class cannot be instantiated
+            for SMF method binding. The exception names the offending
+            field and DRF type.
     """
     computed = computed or {}
     skip = set(exclude) | set(computed)
 
-    instance = serializer_cls()
+    instance = _instantiate_for_binding(serializer_cls)
+
     fields: dict[str, tuple[Any, Any]] = {}
+    method_getters: dict[str, Callable[[Any], Any]] = {}
     for field_name, field in instance.fields.items():
         if field_name in skip:
+            continue
+        if isinstance(field, drf.SerializerMethodField):
+            py_type, py_field, getter = _resolve_smf(
+                field_name, field, serializer_cls, instance
+            )
+            fields[field_name] = (py_type, py_field)
+            method_getters[field_name] = getter
             continue
         py_type, py_field = _map_field(field_name, field)
         fields[field_name] = (py_type, py_field)
 
     cls_name = name or f"{serializer_cls.__name__}Fast"
     base = create_model(cls_name, __base__=FastSerializer, **fields)
+    if method_getters:
+        base._fs_method_getters = method_getters  # type: ignore[attr-defined]
     if not computed:
         return base
     return _attach_computed(base, computed, cls_name)
+
+
+def _instantiate_for_binding(serializer_cls: type[drf.Serializer]) -> drf.Serializer:
+    """Build an instance of `serializer_cls` for field walking + SMF method binding.
+
+    DRF's `Serializer.__init__` accepts no required args; subclasses that
+    add required positional args break this assumption. We raise a clean
+    `MigrationError` so the caller knows to use `exclude=` / `computed=`.
+    """
+    try:
+        return serializer_cls()
+    except TypeError as exc:
+        raise MigrationError(
+            f"Could not instantiate {serializer_cls.__name__}() to bind "
+            f"SerializerMethodField getters: {exc}. Pass `exclude=...` for "
+            f"every SMF, or use `computed=` to supply replacements."
+        ) from exc
+
+
+def _resolve_smf(
+    field_name: str,
+    field: drf.SerializerMethodField,
+    serializer_cls: type[drf.Serializer],
+    instance: drf.Serializer,
+) -> tuple[Any, Any, Callable[[Any], Any]]:
+    """Translate `SerializerMethodField` → (pydantic_type, FieldInfo, bound_getter).
+
+    The getter receives the **source object** (Django model, dict, ...),
+    matching DRF's contract — not the pydantic instance. It runs once
+    per row at validate time; pydantic stores the result in a regular
+    field, then the Rust `dump_json` path renders it.
+    """
+    method_name = field.method_name or f"get_{field_name}"
+    bound = getattr(instance, method_name, None)
+    if not callable(bound):
+        raise MigrationError(
+            f"SerializerMethodField {field_name!r} expects method "
+            f"{method_name!r} on {serializer_cls.__name__}, but none found."
+        )
+    return_type = _smf_return_type(bound, serializer_cls.__name__, field_name)
+    return return_type | None, Field(default=None), bound
+
+
+def _smf_return_type(
+    bound: Callable[..., Any], cls_name: str, field_name: str
+) -> Any:
+    """Read the return annotation off a bound `get_*` method.
+
+    Missing annotation falls back to `Any`. `Any` defeats pydantic's
+    Rust-side type validation, so the output path is slower; warn once
+    to nudge callers toward annotating.
+    """
+    try:
+        hints = get_type_hints(bound)
+    except Exception:
+        hints = {}
+    ret = hints.get("return")
+    if ret is None:
+        warnings.warn(
+            f"{cls_name}.{field_name}: SerializerMethodField getter has no "
+            f"return annotation; falling back to `Any` (slower output path). "
+            f"Add `-> T` to the get_* method for the Rust render fast path.",
+            stacklevel=3,
+        )
+        return Any
+    return ret
 
 
 def _attach_computed(
@@ -131,16 +218,28 @@ def _attach_computed(
             return getter
 
         namespace[cname] = computed_field(property(_make_getter(fn, return_type)))
-    return type(cls_name, (base,), namespace)
+    sub = type(cls_name, (base,), namespace)
+    # computed_field declarations override auto-SMF entries of the same name.
+    # Drop those from the inherited method-getter table to keep precedence
+    # exclude > computed > auto-SMF.
+    parent_getters = getattr(base, "_fs_method_getters", None)
+    if parent_getters:
+        remaining = {k: v for k, v in parent_getters.items() if k not in computed}
+        if remaining != parent_getters:
+            sub._fs_method_getters = remaining  # type: ignore[attr-defined]
+    return sub
 
 
 def _map_field(field_name: str, field: drf.Field) -> tuple[Any, Any]:
-    """Map one DRF field to (python_type, pydantic Field info)."""
+    """Map one DRF field to (python_type, pydantic Field info).
+
+    `SerializerMethodField` is handled by `_resolve_smf` before this is
+    called; reaching the SMF branch below indicates an internal error.
+    """
     if isinstance(field, drf.SerializerMethodField):
         raise MigrationError(
-            f"Field {field_name!r} is a SerializerMethodField; cannot be "
-            f"auto-translated. Pass exclude=({field_name!r},) to from_drf() "
-            f"and redeclare it on the result with @computed_field."
+            f"Internal: SerializerMethodField {field_name!r} reached _map_field. "
+            f"This is a bug in from_drf."
         )
 
     if isinstance(field, drf.ListSerializer):
@@ -216,3 +315,5 @@ def _field_info(
     else:
         kwargs["default"] = default
     return Field(**kwargs)
+
+

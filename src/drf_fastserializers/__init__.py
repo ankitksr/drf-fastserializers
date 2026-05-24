@@ -17,8 +17,11 @@ Quick start (existing DRF serializers):
 
 The mixin auto-translates the serializer at first .data access (cached
 per-class) and switches the read path to pydantic-core's Rust JSON
-encoder. Falls back to standard DRF .data with a warning if any field
-can't be mechanically translated (typically SerializerMethodField).
+encoder. `SerializerMethodField`s with a `-> T` return annotation are
+auto-translated; un-annotated getters work but fall back to `Any` (no
+Rust-side type coercion). The mixin falls back to standard DRF .data
+with a warning only when a custom Field with no scalar mapping is
+encountered.
 
 New code (define schemas natively in pydantic):
 
@@ -76,4 +79,4 @@ __all__ = [
     "PYD_V3",
 ]
 
-__version__ = "0.2.0.dev0"
+__version__ = "0.3.0"

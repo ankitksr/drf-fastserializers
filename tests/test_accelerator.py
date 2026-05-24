@@ -82,14 +82,20 @@ def test_mixin_many_uses_fast_list_serializer(txn_instance: dict):
 
 
 def test_mixin_falls_back_when_translation_fails():
-    """SerializerMethodField → warning + DRF .data fallback (no Rust speedup)."""
+    """Untranslatable custom field → warning + DRF .data fallback (no Rust speedup).
+
+    SerializerMethodField alone is no longer a trigger — it auto-translates.
+    A custom Field subclass with overridden `to_representation` and no
+    scalar mapping still raises MigrationError, exercising the fallback.
+    """
+
+    class _CustomField(serializers.Field):
+        def to_representation(self, value):
+            return str(value).upper()
 
     class _Unaccelerable(FastSerializerMixin, serializers.Serializer):
         id = serializers.IntegerField()
-        derived = serializers.SerializerMethodField()
-
-        def get_derived(self, obj):
-            return obj["id"] * 10
+        weird = _CustomField(source="id")
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -98,7 +104,7 @@ def test_mixin_falls_back_when_translation_fails():
 
     # super().data returns ReturnDict, not FastPayload
     assert not isinstance(data, FastPayload)
-    assert data["derived"] == 30
+    assert data["weird"] == "3"
     assert any("auto-translate" in str(w.message) for w in caught)
 
 

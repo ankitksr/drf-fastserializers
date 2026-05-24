@@ -73,24 +73,12 @@ def test_from_drf_handles_optional_and_nullable():
     assert parsed["flags"]["is_refund"] is None
 
 
-def test_from_drf_serializer_method_field_raises():
-    class _BadDRF(serializers.Serializer):
-        id = serializers.IntegerField()
-        computed = serializers.SerializerMethodField()
-
-        def get_computed(self, obj):
-            return obj["id"] * 2
-
-    with pytest.raises(MigrationError, match="computed"):
-        from_drf(_BadDRF)
-
-
-def test_from_drf_exclude_skips_unmappable():
+def test_from_drf_exclude_skips_method_field():
     class _MixedDRF(serializers.Serializer):
         id = serializers.IntegerField()
         computed = serializers.SerializerMethodField()
 
-        def get_computed(self, obj):
+        def get_computed(self, obj) -> int:
             return obj["id"] * 2
 
     Fast = from_drf(_MixedDRF, exclude=("computed",))
