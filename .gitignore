@@ -21,6 +21,10 @@ htmlcov/
 .coverage
 .coverage.*
 
+# Secrets
+.env
+.env.*
+
 # IDE
 .vscode/
 .idea/

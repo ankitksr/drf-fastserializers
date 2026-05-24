@@ -40,7 +40,7 @@ back to standard DRF. The endpoint keeps working either way.
 ## Benchmark
 
 <p align="center">
-  <img src="docs/bench.svg" alt="drf-fastserializers benchmark: 2.6x faster than stock DRF on a 21k-row payload">
+  <img src="https://raw.githubusercontent.com/ankitksr/drf-fastserializers/main/docs/bench.svg" alt="drf-fastserializers benchmark: 2.6x faster than stock DRF on a 21k-row payload">
 </p>
 
 <details>
