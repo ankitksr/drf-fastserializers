@@ -7,6 +7,35 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-05-25
+
+### Added
+- `FastJSONRenderer` now composes dict responses whose values are a mix
+  of `FastPayload` markers and arbitrary Python. Each `FastPayload` is
+  encoded via pydantic-core (Rust); each plain value is encoded with
+  DRF's stock `JSONEncoder`. Keys are emitted in input insertion order
+  and escaped via `json.dumps`. Unlocks bundle-style endpoints
+  (multiple `Schema.drf(...).data` values in one `Response({...})`)
+  without manual byte splicing or mode-juggling on `model_dump`.
+- Pagination envelopes (`{"results": FastPayload, "count": int, ...}`)
+  flow through the same composed path. The dedicated
+  `_render_paginated` helper is gone; pagination behavior is unchanged
+  and covered by both `test_pagination.py` and a new explicit
+  regression in `test_renderer.py`.
+
+### Changed
+- Composed responses fall back to materialize-via-`super().render()`
+  when `renderer_context` requests indented output or DRF is set to
+  non-compact JSON, since the Rust `dump_json` path can't pretty-print.
+  Pretty output is debug-only and rarely on the hot path.
+
+### Known limitation
+- Only top-level `FastPayload` values in a dict are picked up.
+  `FastPayload` nested inside a list or sub-dict still falls through to
+  stock encoding and raises (no in-place encoder for sub-trees). If
+  this comes up in practice, lift the inner payload to a `Schema.drf`
+  one level up, or encode it manually.
+
 ## [0.3.1] - 2026-05-25
 
 ### Added

@@ -135,6 +135,33 @@ encoding for error responses, hand-rolled dicts, the browsable API, and
 anything else it doesn't recognize. Safe as a project-wide default. Set
 `renderer_classes` per view if you want to roll it out gradually.
 
+### Composed responses
+
+Bundle-style endpoints often return multiple serialized payloads under
+one dict. The renderer handles that natively — every value that is a
+`FastPayload` goes through pydantic-core (Rust), everything else
+through DRF's stock `JSONEncoder`. Key order is preserved.
+
+```python
+class WorksheetBundleView(APIView):
+    renderer_classes = [FastJSONRenderer]
+
+    def get(self, request, uid):
+        ws = Worksheet.objects.get(uid=uid)
+        return Response({
+            "worksheet":    FastWorksheetHeader.drf(instance=ws).data,
+            "transactions": BundleTxnRow.drf(instance=ws.transactions.all(), many=True).data,
+            "balances":     BundleBalanceRow.drf(instance=ws.balances.all(), many=True).data,
+            "summary_rows": BundleSummaryRow.drf(instance=ws.summary_rows.all(), many=True).data,
+            "meta":         {"as_of": now()},   # plain value: stock JSON encoder
+        })
+```
+
+Pagination envelopes flow through the same path with no special
+configuration. Indented output (`?format=json&indent=2`) falls back to
+a materialized render — the Rust encoder is compact-only — so leaving
+`COMPACT_JSON` at its default is what unlocks the speedup.
+
 ### SerializerMethodField
 
 Auto-translated. The bound `get_*` method runs once per row at validate
