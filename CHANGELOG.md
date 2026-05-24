@@ -7,6 +7,14 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-05-25
+
+### Changed
+- README on PyPI now shows live PyPI version and monthly download
+  badges.
+- Dependabot enabled for `github-actions` and `pip` (monthly grouped
+  PRs).
+
 ## [0.2.1] - 2026-05-25
 
 ### Fixed
