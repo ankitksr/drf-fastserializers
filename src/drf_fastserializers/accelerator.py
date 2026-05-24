@@ -18,7 +18,7 @@ serializer and `.data` switches to the pydantic-core Rust path:
 
 The mixin translates the serializer's fields to a `FastSerializer`
 schema at first `.data` access (cached per class). If translation fails
-— most commonly because of `SerializerMethodField` — it emits a one-time
+(most commonly because of `SerializerMethodField`), it emits a one-time
 warning and falls back to DRF's standard `.data`. The mixin is safe to
 leave on; it never breaks the response.
 

@@ -6,9 +6,9 @@ Drop into a view's `renderer_classes`:
         renderer_classes = [FastJSONRenderer]
         serializer_class = TxnOut.drf
 
-Falls back to the stock `JSONRenderer` for any non-`FastPayload` payload —
-error responses, browsable API previews, hand-rolled dicts, etc. — so it
-is safe as a global default renderer in `REST_FRAMEWORK` settings.
+Falls back to the stock `JSONRenderer` for any non-`FastPayload` payload
+(error responses, browsable API previews, hand-rolled dicts, etc.), so
+it is safe as a global default renderer in `REST_FRAMEWORK` settings.
 """
 
 from typing import Any

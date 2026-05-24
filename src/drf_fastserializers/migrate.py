@@ -16,12 +16,13 @@ Limits: `SerializerMethodField` and DRF fields with overridden
 using pydantic's `@computed_field`, then exclude them from `from_drf`.
 """
 
+from collections.abc import Callable
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from pydantic import AliasPath, Field, create_model
+from pydantic import AliasPath, Field, computed_field, create_model
 from rest_framework import serializers as drf
 
 from .serializer import FastSerializer
@@ -68,35 +69,69 @@ def from_drf(
     *,
     name: str | None = None,
     exclude: tuple[str, ...] = (),
+    computed: dict[str, tuple[Callable[[Any], Any], type]] | None = None,
 ) -> type[FastSerializer]:
     """Build a `FastSerializer` subclass equivalent to `serializer_cls`.
 
     Args:
         serializer_cls: An existing DRF `Serializer` or `ModelSerializer` class.
         name: Override the generated class name; defaults to `"<Cls>Fast"`.
-        exclude: Field names to skip (use for `SerializerMethodField`s you
-            intend to redeclare manually as `@computed_field`).
+        exclude: Field names to skip (use for fields you intend to drop or
+            redeclare manually).
+        computed: Replace `SerializerMethodField`s with inline
+            `@computed_field`s. Map of ``field_name -> (callable, return_type)``;
+            the callable receives the pydantic instance as its sole arg.
+            Fields named here are skipped during DRF translation, then
+            attached as computed properties on the result.
 
     Returns:
         A `FastSerializer` subclass ready for `.drf` + `FastJSONRenderer`.
 
     Raises:
-        MigrationError: if any non-excluded field has no clean mapping.
-            The exception names the field and its DRF type.
+        MigrationError: if any non-excluded, non-computed field has no
+            clean mapping. The exception names the field and its DRF type.
     """
+    computed = computed or {}
+    skip = set(exclude) | set(computed)
+
     instance = serializer_cls()
     fields: dict[str, tuple[Any, Any]] = {}
     for field_name, field in instance.fields.items():
-        if field_name in exclude:
+        if field_name in skip:
             continue
         py_type, py_field = _map_field(field_name, field)
         fields[field_name] = (py_type, py_field)
 
-    return create_model(
-        name or f"{serializer_cls.__name__}Fast",
-        __base__=FastSerializer,
-        **fields,
-    )
+    cls_name = name or f"{serializer_cls.__name__}Fast"
+    base = create_model(cls_name, __base__=FastSerializer, **fields)
+    if not computed:
+        return base
+    return _attach_computed(base, computed, cls_name)
+
+
+def _attach_computed(
+    base: type[FastSerializer],
+    computed: dict[str, tuple[Callable[[Any], Any], type]],
+    cls_name: str,
+) -> type[FastSerializer]:
+    """Subclass `base` with `@computed_field` properties attached.
+
+    Each entry's callable becomes a property getter; the second element of
+    the tuple is the return annotation pydantic uses to type the field in
+    the JSON schema and for output coercion.
+    """
+    namespace: dict[str, Any] = {}
+    for cname, (fn, return_type) in computed.items():
+        # Build a typed wrapper so pydantic can read the return annotation.
+        def _make_getter(_fn: Callable[[Any], Any], _ret: type) -> Callable[[Any], Any]:
+            def getter(self: Any) -> Any:
+                return _fn(self)
+
+            getter.__annotations__ = {"self": Any, "return": _ret}
+            return getter
+
+        namespace[cname] = computed_field(property(_make_getter(fn, return_type)))
+    return type(cls_name, (base,), namespace)
 
 
 def _map_field(field_name: str, field: drf.Field) -> tuple[Any, Any]:
@@ -162,7 +197,7 @@ def _field_info(
     kwargs: dict[str, Any] = {}
 
     # source="a.b.c" → AliasPath(a, b, c). source=="*" means "the whole object";
-    # leave it alone — pydantic's from_attributes handles it.
+    # leave it alone, pydantic's from_attributes handles it.
     source = getattr(field, "source", None)
     if source and source != field_name and source != "*":
         parts = source.split(".")

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="534" viewBox="0 0 920 534" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<defs>
+<linearGradient id="grad-accent" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#e92063"/><stop offset="100%" stop-color="#b3174a"/></linearGradient>
+<linearGradient id="grad-stock" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#64748b"/><stop offset="100%" stop-color="#475569"/></linearGradient>
+<linearGradient id="grad-floor" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#cbd5e1"/><stop offset="100%" stop-color="#94a3b8"/></linearGradient>
+<filter id="card-shadow" x="-10%" y="-10%" width="120%" height="130%"><feGaussianBlur in="SourceAlpha" stdDeviation="6"/><feOffset dy="4" result="shadowOffset"/><feComponentTransfer><feFuncA type="linear" slope="0.12"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="920" height="534" fill="#fafaf9"/>
+<rect x="24" y="24" width="872" height="486" rx="14" fill="#ffffff" stroke="#e7e5e4" stroke-width="1" filter="url(#card-shadow)"/>
+<text x="60" y="74" font-size="22" font-weight="700" fill="#0f172a" letter-spacing="-0.4">drf-fastserializers vs stock DRF</text>
+<text x="60" y="98" font-size="13" fill="#475569">21,393 synthetic rows · median ms · lower is better</text>
+<line x1="60" y1="124" x2="860" y2="124" stroke="#e7e5e4" stroke-width="1"/>
+<line x1="676.0" y1="142" x2="676.0" y2="438" stroke="#e7e5e4" stroke-width="1" stroke-dasharray="2 4"/>
+<text x="60" y="156" font-size="13" font-weight="500" fill="#475569">DRF Serializer (stock)</text>
+<rect x="304" y="170" width="372.0" height="30" rx="6" fill="url(#grad-stock)"/>
+<text x="688.0" y="190.0" font-size="14" font-weight="700" fill="#475569">94 ms</text>
+<g transform="translate(768.0,174.0)"><rect width="56" height="22" rx="11" fill="#ffffff" stroke="#e7e5e4" stroke-width="1"/><text x="28.0" y="15" text-anchor="middle" font-size="11" font-weight="600" fill="#475569" letter-spacing="0.2">1.00x</text></g>
+<text x="60" y="234" font-size="13" font-weight="600" fill="#0f172a">drf-fastserializers (mixin)</text>
+<rect x="304" y="248" width="145.8" height="30" rx="6" fill="url(#grad-accent)"/>
+<text x="461.8" y="268.0" font-size="14" font-weight="700" fill="#0f172a">37 ms</text>
+<g transform="translate(541.8,252.0)"><rect width="56" height="22" rx="11" fill="#e92063" stroke="none" stroke-width="1"/><text x="28.0" y="15" text-anchor="middle" font-size="11" font-weight="600" fill="#ffffff" letter-spacing="0.2">2.55x</text></g>
+<text x="60" y="312" font-size="13" font-weight="600" fill="#0f172a">drf-fastserializers (native)</text>
+<rect x="304" y="326" width="143.2" height="30" rx="6" fill="url(#grad-accent)"/>
+<text x="459.2" y="346.0" font-size="14" font-weight="700" fill="#0f172a">36 ms</text>
+<g transform="translate(539.2,330.0)"><rect width="56" height="22" rx="11" fill="#e92063" stroke="none" stroke-width="1"/><text x="28.0" y="15" text-anchor="middle" font-size="11" font-weight="600" fill="#ffffff" letter-spacing="0.2">2.60x</text></g>
+<text x="60" y="390" font-size="13" font-weight="500" fill="#475569">Raw dict (reference floor)</text>
+<rect x="304" y="404" width="81.6" height="30" rx="6" fill="url(#grad-floor)"/>
+<text x="397.6" y="424.0" font-size="14" font-weight="700" fill="#475569">21 ms</text>
+<g transform="translate(477.6,408.0)"><rect width="56" height="22" rx="11" fill="#ffffff" stroke="#e7e5e4" stroke-width="1"/><text x="28.0" y="15" text-anchor="middle" font-size="11" font-weight="600" fill="#475569" letter-spacing="0.2">4.56x</text></g>
+<text x="60" y="478" font-size="11" fill="#94a3b8">5 runs · Python 3.12.11 · pydantic 2.13.4 · synthetic data · benchmarks/bench.py</text>
+</svg>

@@ -22,7 +22,7 @@ from typing import Any, ClassVar, Final
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from ._errors import pydantic_errors_to_drf
-from ._payload import FastPayload
+from ._payload import FastPayload, RawJSONBytes
 
 _UNSET: Final = object()
 
@@ -41,6 +41,33 @@ def _list_adapter(cls: type["FastSerializer"]) -> TypeAdapter:
         cached = TypeAdapter(list[cls])  # type: ignore[valid-type]
         cls._fs_list_adapter = cached  # type: ignore[attr-defined]
     return cached
+
+
+# Cache of partial variants keyed by source class. A partial variant is a
+# clone where every declared field is widened to `T | None` with default
+# `None`, mirroring DRF's `partial=True` semantics: any subset of fields
+# may be omitted on input.
+_partial_variant_cache: dict[type, type] = {}
+
+
+def _partial_variant(cls: type["FastSerializer"]) -> type["FastSerializer"]:
+    """Return a clone of `cls` where every field is optional with default None."""
+    cached = _partial_variant_cache.get(cls)
+    if cached is not None:
+        return cached
+    from pydantic import create_model
+
+    field_defs: dict[str, tuple[Any, Any]] = {}
+    for fname, info in cls.model_fields.items():
+        widened = info.annotation | None if info.annotation is not None else Any
+        field_defs[fname] = (widened, None)
+    variant = create_model(
+        f"{cls.__name__}Partial",
+        __base__=FastSerializer,
+        **field_defs,
+    )
+    _partial_variant_cache[cls] = variant
+    return variant
 
 
 class DRFAdapter:
@@ -85,7 +112,13 @@ class DRFAdapter:
             raise RuntimeError("is_valid() called without data; pass data=... at construction")
         adapter = self._adapter()
         try:
-            self._validated = adapter.validate_python(self.initial_data)
+            # `FastJSONParser` hands us bytes wrapped in `RawJSONBytes`;
+            # validate_json runs in Rust over those bytes, skipping the
+            # Python json.loads + validate_python double-walk.
+            if isinstance(self.initial_data, RawJSONBytes):
+                self._validated = adapter.validate_json(self.initial_data.raw)
+            else:
+                self._validated = adapter.validate_python(self.initial_data)
             self._errors = {}
             return True
         except ValidationError as exc:
@@ -107,11 +140,8 @@ class DRFAdapter:
     # --- internals -----------------------------------------------------
 
     def _adapter(self) -> TypeAdapter:
-        return (
-            _list_adapter(self.serializer_cls)
-            if self.many
-            else _single_adapter(self.serializer_cls)
-        )
+        cls = _partial_variant(self.serializer_cls) if self.partial else self.serializer_cls
+        return _list_adapter(cls) if self.many else _single_adapter(cls)
 
 
 # Per-FastSerializer cache of generated adapter classes.
@@ -158,6 +188,21 @@ class FastSerializer(BaseModel):
     model_config = ConfigDict(extra="ignore", from_attributes=True)
 
     drf: ClassVar = _DRFAccessor()
+
+    @classmethod
+    def values_fields(cls, *, exclude: tuple[str, ...] = ()) -> tuple[str, ...]:
+        """Return field names for `QuerySet.values(*...)` projection.
+
+        Lets you spell the projection once, on the schema, instead of
+        re-typing field names in every view::
+
+            qs = Txn.objects.values(*TxnOut.values_fields())
+
+        Computed fields (declared with `@computed_field`) are excluded;
+        only declared model fields are returned, matching what the ORM
+        knows how to project.
+        """
+        return tuple(name for name in cls.model_fields if name not in exclude)
 
 
 def drf_serializer(serializer_cls: type[FastSerializer]) -> type[DRFAdapter]:

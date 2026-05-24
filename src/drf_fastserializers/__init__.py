@@ -1,4 +1,4 @@
-"""drf-fastserializers — faster DRF serializers, one line at a time.
+"""drf-fastserializers: faster DRF serializers, one line at a time.
 
 Quick start (existing DRF serializers):
 
@@ -35,16 +35,21 @@ New code (define schemas natively in pydantic):
 
 Public surface:
 
-- `FastSerializerMixin` — mix into an existing DRF Serializer.
-- `FastJSONRenderer` — add to `renderer_classes` to unlock Rust encode.
-- `FastSerializer` — pydantic-backed schema base for new code.
-- `from_drf(SerializerCls)` — explicit DRF → FastSerializer translation.
-- `drf_serializer(SchemaCls)` — functional alternative to `.drf`.
+- `FastSerializerMixin`: mix into an existing DRF Serializer.
+- `FastJSONRenderer`: Rust-encoded output path; add to `renderer_classes`.
+- `FastJSONParser`: Rust-encoded input path; add to `parser_classes`.
+- `FastSerializer`: pydantic-backed schema base for new code.
+- `from_drf(SerializerCls)`: explicit DRF to FastSerializer translation.
+- `from_model(DjangoModel)`: derive a FastSerializer from a Django model.
+- `drf_serializer(SchemaCls)`: functional alternative to `.drf`.
 """
 
 from ._compat import PYD_V3
+from ._payload import FastPayload, RawJSONBytes
 from .accelerator import FastListSerializer, FastSerializerMixin
 from .migrate import MigrationError, from_drf
+from .models import ModelMappingError, from_model
+from .parser import FastJSONParser
 from .renderer import FastJSONRenderer
 from .serializer import DRFAdapter, FastSerializer, drf_serializer
 
@@ -53,16 +58,22 @@ __all__ = [
     # Entry path: drop into existing DRF serializers.
     "FastSerializerMixin",
     "FastJSONRenderer",
+    "FastJSONParser",
     "FastListSerializer",
-    # Migration helper for explicit translation.
+    # Migration helpers.
     "from_drf",
+    "from_model",
     "MigrationError",
+    "ModelMappingError",
     # Native pydantic-first path for new code.
     "FastSerializer",
     "DRFAdapter",
     "drf_serializer",
+    # Marker payloads (mostly internal but useful for type hints).
+    "FastPayload",
+    "RawJSONBytes",
     # Version compatibility flag.
     "PYD_V3",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0.dev0"

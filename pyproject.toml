@@ -1,6 +1,6 @@
 [project]
 name = "drf-fastserializers"
-version = "0.1.0"
+version = "0.2.0.dev0"
 description = "Drop-in pydantic-powered serializers for Django REST Framework. 2-3x faster on large payloads."
 readme = "README.md"
 license = "MIT"
@@ -39,6 +39,11 @@ dependencies = [
     "djangorestframework>=3.14",
 ]
 
+[project.optional-dependencies]
+spectacular = [
+    "drf-spectacular>=0.27",
+]
+
 [project.urls]
 Homepage = "https://github.com/ankitksr/drf-fastserializers"
 Repository = "https://github.com/ankitksr/drf-fastserializers"
@@ -48,6 +53,7 @@ Changelog = "https://github.com/ankitksr/drf-fastserializers/blob/main/CHANGELOG
 [dependency-groups]
 dev = [
     "django>=5.0",
+    "drf-spectacular>=0.27",
     "pytest>=8.0",
     "pytest-django>=4.8",
     "ruff>=0.6",

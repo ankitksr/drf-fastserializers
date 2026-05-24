@@ -170,13 +170,18 @@ def _strategy_native(rows: list[dict], fast_renderer: FastJSONRenderer) -> int:
     return len(raw)
 
 
-def main() -> None:
+def run() -> list[dict]:
+    """Run every strategy and return the result dicts.
+
+    Exposed so plot.py and other consumers can capture the numbers
+    without scraping the printed table. The first entry is always the
+    stock DRF baseline; speedups should be anchored on `results[0]["median"]`.
+    """
     rows = _make_rows(N_ROWS)
     drf_renderer = JSONRenderer()
     fast_renderer = FastJSONRenderer()
 
-    results = [
-        _bench("Raw dict + JSONRenderer", lambda: _strategy_raw(rows, drf_renderer)),
+    return [
         _bench("DRF Serializer (stock)", lambda: _strategy_drf(rows, drf_renderer)),
         _bench(
             "drf-fastserializers (mixin)",
@@ -186,10 +191,16 @@ def main() -> None:
             "drf-fastserializers (native)",
             lambda: _strategy_native(rows, fast_renderer),
         ),
+        _bench(
+            "Raw dict (reference floor)",
+            lambda: _strategy_raw(rows, drf_renderer),
+        ),
     ]
 
-    # Anchor speedup on stock DRF
-    baseline_median = results[1]["median"]
+
+def main() -> None:
+    results = run()
+    baseline_median = results[0]["median"]
 
     print(
         f"\nN={N_ROWS:,} synthetic rows, {RUNS} runs each\n"
