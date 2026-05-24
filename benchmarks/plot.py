@@ -1,9 +1,13 @@
-"""Generate `docs/bench.svg`, a polished benchmark chart.
+"""Generate `docs/bench.svg`, an editorial-engineering benchmark chart.
 
-Hand-rolled SVG, zero plotting dependencies. Layout takes cues from
-modern data dashboards (Vercel, Linear, Stripe): generous whitespace,
-two-tone palette, gradient-filled accent bars, pill-style speedup
-annotations, soft outer card with a subtle shadow.
+Visual direction: a printed performance brief. Warm cream paper, single
+deep-indigo accent for the library win, monospace numerals throughout,
+strong typographic hierarchy with the speedup multiplier as the hero
+number. Restrained neutral palette for everything else.
+
+Hand-rolled SVG, zero plotting dependencies. Designed to render
+correctly when embedded as `<img>` in a GitHub README: no `<filter>`,
+no `<pattern>`, no external resources, no web fonts. System fonts only.
 
 Regenerate after meaningful perf changes::
 
@@ -17,212 +21,213 @@ import pydantic
 
 from benchmarks.bench import N_ROWS, RUNS, run
 
-# Palette. Single accent (pydantic pink) for library bars, restrained
-# slate scale for everything else.
-_ACCENT = "#e92063"
-_ACCENT_DARK = "#b3174a"
-_ACCENT_SOFT = "#fce4ec"
-_STOCK = "#64748b"
-_STOCK_DARK = "#475569"
-_FLOOR = "#cbd5e1"
-_FLOOR_DARK = "#94a3b8"
+# Palette. Single accent (deep indigo) for library wins, restrained
+# neutral scale for stock and reference floor. No red anywhere.
+_BG = "#faf8f3"
+_INK = "#0f0f17"
+_INK_SOFT = "#3d3d4d"
+_INK_FAINT = "#8a8a99"
+_HAIRLINE = "#e3dfd6"
+_ACCENT = "#1e1b4b"
+_ACCENT_BAR = "#3730a3"
+_STOCK_BAR = "#3d3d4d"
+_FLOOR_BAR = "#c5c0b3"
+_PILL_TEXT = "#ffffff"
 
-_TEXT_PRIMARY = "#0f172a"
-_TEXT_SECONDARY = "#475569"
-_TEXT_MUTED = "#94a3b8"
-_CANVAS = "#fafaf9"
-_CARD = "#ffffff"
-_BORDER = "#e7e5e4"
+# System font stacks. No web fonts; these must work on any machine that
+# renders the SVG via `<img>`.
+_FONT_MONO = '"Menlo", "Monaco", "Cascadia Code", "Consolas", "Courier New", monospace'
+_FONT_SANS = '"Helvetica Neue", "Helvetica", "Arial", sans-serif'
 
 _LIBRARY_LABELS = {"drf-fastserializers (mixin)", "drf-fastserializers (native)"}
 _FLOOR_LABELS = {"Raw dict (reference floor)"}
 
+_DISPLAY_LABEL = {
+    "DRF Serializer (stock)": "DRF Serializer  ·  stock",
+    "drf-fastserializers (mixin)": "drf-fastserializers  ·  mixin",
+    "drf-fastserializers (native)": "drf-fastserializers  ·  native",
+    "Raw dict (reference floor)": "raw dict  ·  reference floor",
+}
+
 _OUTPUT = Path(__file__).resolve().parent.parent / "docs" / "bench.svg"
 
 
-def _bar_palette(label: str) -> tuple[str, str]:
-    """Return (fill_gradient_id, text_color) for a strategy label."""
+def _bar_color(label: str) -> str:
     if label in _LIBRARY_LABELS:
-        return "grad-accent", _ACCENT_DARK
+        return _ACCENT_BAR
     if label in _FLOOR_LABELS:
-        return "grad-floor", _FLOOR_DARK
-    return "grad-stock", _STOCK_DARK
-
-
-def _pill(
-    x: float,
-    y: float,
-    text: str,
-    *,
-    accent: bool,
-) -> str:
-    """Render a speedup pill. Filled accent for library wins, outline otherwise."""
-    width = max(56, 12 + 7 * len(text))
-    height = 22
-    if accent:
-        fill = _ACCENT
-        stroke = "none"
-        text_color = "#ffffff"
-    else:
-        fill = "#ffffff"
-        stroke = _BORDER
-        text_color = _TEXT_SECONDARY
-    return (
-        f'<g transform="translate({x:.1f},{y:.1f})">'
-        f'<rect width="{width}" height="{height}" rx="11" '
-        f'fill="{fill}" stroke="{stroke}" stroke-width="1"/>'
-        f'<text x="{width / 2}" y="15" text-anchor="middle" '
-        f'font-size="11" font-weight="600" fill="{text_color}" '
-        f'letter-spacing="0.2">{text}</text>'
-        f"</g>"
-    )
+        return _FLOOR_BAR
+    return _STOCK_BAR
 
 
 def render_svg(results: list[dict]) -> str:
-    canvas_w = 920
-    pad_outer = 24
-    card_w = canvas_w - pad_outer * 2
+    """Render the editorial benchmark report as a static SVG string."""
+    width = 960
+    height = 540
+    pad_x = 56
 
-    title_block_h = 110
-    row_h = 78
-    footer_h = 64
-    rows = len(results)
-    card_h = title_block_h + rows * row_h + footer_h
-    canvas_h = card_h + pad_outer * 2
+    bar_area_x = 296
+    bar_area_w = 460
+    bars_top = 252
+    row_h = 58
+    bar_h = 22
 
-    bar_left = 280
-    bar_right_padding = 220
-    bar_max_w = card_w - bar_left - bar_right_padding
-    bar_height = 30
+    pill_w = 124
+    pill_x = width - pad_x - pill_w
 
-    max_ms = max(r["median"] for r in results)
     baseline_ms = results[0]["median"]
+    max_ms = max(r["median"] for r in results)
+    # Round the chart scale up to a clean tick (next multiple of 25).
+    scale_max = ((int(max_ms) // 25) + 1) * 25
+
+    # The hero number is the strongest library speedup, not the average.
+    # The chart below shows individual rows; the hero shows the headline win.
+    library_results = [r for r in results if r["label"] in _LIBRARY_LABELS]
+    best = min(library_results, key=lambda r: r["median"]) if library_results else results[0]
+    hero_speedup = baseline_ms / best["median"]
 
     py_ver = ".".join(str(p) for p in sys.version_info[:3])
     pyd_ver = pydantic.VERSION
 
     parts: list[str] = [
         (
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{canvas_w}" '
-            f'height="{canvas_h}" viewBox="0 0 {canvas_w} {canvas_h}" '
-            "font-family=\"-apple-system, BlinkMacSystemFont, 'Segoe UI', "
-            'Roboto, Helvetica, Arial, sans-serif">'
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" '
+            f'height="{height}" viewBox="0 0 {width} {height}">'
         ),
-        "<defs>",
-        # Bar gradients: subtle vertical tone shift for depth.
-        f'<linearGradient id="grad-accent" x1="0" y1="0" x2="0" y2="1">'
-        f'<stop offset="0%" stop-color="{_ACCENT}"/>'
-        f'<stop offset="100%" stop-color="{_ACCENT_DARK}"/></linearGradient>',
-        f'<linearGradient id="grad-stock" x1="0" y1="0" x2="0" y2="1">'
-        f'<stop offset="0%" stop-color="{_STOCK}"/>'
-        f'<stop offset="100%" stop-color="{_STOCK_DARK}"/></linearGradient>',
-        f'<linearGradient id="grad-floor" x1="0" y1="0" x2="0" y2="1">'
-        f'<stop offset="0%" stop-color="{_FLOOR}"/>'
-        f'<stop offset="100%" stop-color="{_FLOOR_DARK}"/></linearGradient>',
-        # Card drop shadow.
-        '<filter id="card-shadow" x="-10%" y="-10%" width="120%" height="130%">'
-        '<feGaussianBlur in="SourceAlpha" stdDeviation="6"/>'
-        '<feOffset dy="4" result="shadowOffset"/>'
-        '<feComponentTransfer><feFuncA type="linear" slope="0.12"/></feComponentTransfer>'
-        '<feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>'
-        "</filter>",
-        "</defs>",
-        # Canvas background.
-        f'<rect width="{canvas_w}" height="{canvas_h}" fill="{_CANVAS}"/>',
-        # Card.
-        (
-            f'<rect x="{pad_outer}" y="{pad_outer}" width="{card_w}" '
-            f'height="{card_h}" rx="14" fill="{_CARD}" stroke="{_BORDER}" '
-            f'stroke-width="1" filter="url(#card-shadow)"/>'
-        ),
+        f'<rect width="{width}" height="{height}" fill="{_BG}"/>',
     ]
 
-    # Title block.
-    title_x = pad_outer + 36
-    title_y = pad_outer + 50
+    # ---- HEADER ----------------------------------------------------------
     parts.append(
-        f'<text x="{title_x}" y="{title_y}" font-size="22" font-weight="700" '
-        f'fill="{_TEXT_PRIMARY}" letter-spacing="-0.4">'
-        f"drf-fastserializers vs stock DRF</text>"
+        f'<text x="{pad_x}" y="44" font-family={_FONT_MONO!r} font-size="11" '
+        f'font-weight="600" fill="{_INK_FAINT}" letter-spacing="2.4">'
+        f"BENCHMARK</text>"
     )
     parts.append(
-        f'<text x="{title_x}" y="{title_y + 24}" font-size="13" '
-        f'fill="{_TEXT_SECONDARY}">'
-        f"{N_ROWS:,} synthetic rows · median ms · lower is better</text>"
+        f'<text x="{width - pad_x}" y="44" font-family={_FONT_MONO!r} '
+        f'font-size="11" font-weight="500" fill="{_INK_FAINT}" '
+        f'text-anchor="end" letter-spacing="1.4">DRF-FASTSERIALIZERS</text>'
     )
-    # Title divider.
     parts.append(
-        f'<line x1="{pad_outer + 36}" y1="{pad_outer + title_block_h - 10}" '
-        f'x2="{pad_outer + card_w - 36}" y2="{pad_outer + title_block_h - 10}" '
-        f'stroke="{_BORDER}" stroke-width="1"/>'
+        f'<line x1="{pad_x}" y1="72" x2="{width - pad_x}" y2="72" '
+        f'stroke="{_HAIRLINE}" stroke-width="1"/>'
     )
 
-    # Vertical guide at the baseline position.
-    baseline_x = pad_outer + bar_left + (baseline_ms / max_ms) * bar_max_w
+    # ---- HERO ------------------------------------------------------------
+    # Massive speedup numeral, with "faster" sans-serif inline on the same
+    # baseline. Subtitle stacks below.
     parts.append(
-        f'<line x1="{baseline_x:.1f}" y1="{pad_outer + title_block_h + 8}" '
-        f'x2="{baseline_x:.1f}" '
-        f'y2="{pad_outer + title_block_h + rows * row_h - 8}" '
-        f'stroke="{_BORDER}" stroke-width="1" stroke-dasharray="2 4"/>'
+        f'<text y="180">'
+        f'<tspan x="{pad_x}" font-family={_FONT_MONO!r} font-size="88" '
+        f'font-weight="700" fill="{_ACCENT}" letter-spacing="-2">'
+        f"{hero_speedup:.1f}×</tspan>"
+        f'<tspan font-family={_FONT_SANS!r} font-size="30" font-weight="500" '
+        f'fill="{_INK}" dx="22">faster</tspan>'
+        f"</text>"
+    )
+    parts.append(
+        f'<text x="{pad_x}" y="214" font-family={_FONT_SANS!r} '
+        f'font-size="15" fill="{_INK_SOFT}">'
+        f"than stock DRF on a {N_ROWS:,}-row response.  "
+        f"one line of code.</text>"
+    )
+    parts.append(
+        f'<line x1="{pad_x}" y1="232" x2="{width - pad_x}" y2="232" '
+        f'stroke="{_HAIRLINE}" stroke-width="1"/>'
     )
 
-    # Rows.
+    # ---- BARS ------------------------------------------------------------
+    # Subtle dashed vertical marker at the stock baseline. Library bars
+    # visibly end far to the left of it.
+    baseline_x = bar_area_x + (baseline_ms / scale_max) * bar_area_w
+    parts.append(
+        f'<line x1="{baseline_x:.1f}" y1="{bars_top - 6}" '
+        f'x2="{baseline_x:.1f}" y2="{bars_top + 4 * row_h + 6}" '
+        f'stroke="{_INK_FAINT}" stroke-width="1" stroke-dasharray="2 5" '
+        f'opacity="0.4"/>'
+    )
+
     for i, r in enumerate(results):
-        row_top = pad_outer + title_block_h + i * row_h
-        label_y = row_top + 22
-        bar_y = row_top + 36
-        bar_w = (r["median"] / max_ms) * bar_max_w
-        gradient_id, _ = _bar_palette(r["label"])
-        is_library = r["label"] in _LIBRARY_LABELS
+        y_top = bars_top + i * row_h
+        y_mid = y_top + row_h / 2
+        bar_y = y_top + (row_h - bar_h) / 2
+        bar_w = (r["median"] / scale_max) * bar_area_w
+
+        is_lib = r["label"] in _LIBRARY_LABELS
+        is_floor = r["label"] in _FLOOR_LABELS
+        color = _bar_color(r["label"])
         speedup = baseline_ms / r["median"]
 
-        # Strategy label (above bar).
-        label_weight = "600" if is_library else "500"
-        label_color = _TEXT_PRIMARY if is_library else _TEXT_SECONDARY
+        # Strategy label, left column.
+        if is_lib:
+            label_color = _ACCENT
+            label_weight = "600"
+        elif is_floor:
+            label_color = _INK_FAINT
+            label_weight = "500"
+        else:
+            label_color = _INK
+            label_weight = "600"
         parts.append(
-            f'<text x="{pad_outer + 36}" y="{label_y}" font-size="13" '
-            f'font-weight="{label_weight}" fill="{label_color}">'
-            f"{r['label']}</text>"
+            f'<text x="{pad_x}" y="{y_mid + 4}" font-family={_FONT_MONO!r} '
+            f'font-size="13" font-weight="{label_weight}" '
+            f'fill="{label_color}" letter-spacing="0.3">'
+            f"{_DISPLAY_LABEL.get(r['label'], r['label'])}</text>"
         )
 
         # Bar.
         parts.append(
-            f'<rect x="{pad_outer + bar_left}" y="{bar_y}" '
-            f'width="{bar_w:.1f}" height="{bar_height}" rx="6" '
-            f'fill="url(#{gradient_id})"/>'
+            f'<rect x="{bar_area_x}" y="{bar_y}" width="{bar_w:.1f}" '
+            f'height="{bar_h}" fill="{color}" rx="2"/>'
         )
 
-        # ms value next to bar.
-        ms_x = pad_outer + bar_left + bar_w + 12
+        # ms value, just past the end of the bar.
+        val_x = bar_area_x + bar_w + 12
+        val_color = _ACCENT if is_lib else (_INK_FAINT if is_floor else _INK)
         parts.append(
-            f'<text x="{ms_x:.1f}" y="{bar_y + bar_height / 2 + 5}" '
-            f'font-size="14" font-weight="700" '
-            f'fill="{_TEXT_PRIMARY if is_library else _TEXT_SECONDARY}">'
-            f"{r['median']:.0f} ms</text>"
+            f'<text x="{val_x:.1f}" y="{y_mid + 4}" font-family={_FONT_MONO!r} '
+            f'font-size="15" font-weight="700" fill="{val_color}">'
+            f"{r['median']:.0f}"
+            f'<tspan font-size="11" font-weight="500" dx="2" opacity="0.7">'
+            f"ms</tspan></text>"
         )
 
-        # Speedup pill.
-        pill_x = ms_x + 80
-        parts.append(
-            _pill(
-                pill_x,
-                bar_y + bar_height / 2 - 11,
-                f"{speedup:.2f}x",
-                accent=is_library,
+        # Right-edge annotation: filled pill for library wins; tracked
+        # caps for everything else.
+        if is_lib:
+            parts.append(
+                f'<rect x="{pill_x}" y="{y_mid - 12}" width="{pill_w}" '
+                f'height="24" rx="12" fill="{_ACCENT}"/>'
             )
-        )
+            parts.append(
+                f'<text x="{pill_x + pill_w / 2}" y="{y_mid + 4}" '
+                f'font-family={_FONT_MONO!r} font-size="10" font-weight="700" '
+                f'fill="{_PILL_TEXT}" text-anchor="middle" '
+                f'letter-spacing="1.6">{speedup:.2f}× SPEEDUP</text>'
+            )
+        else:
+            note = "REFERENCE FLOOR" if is_floor else "BASELINE"
+            parts.append(
+                f'<text x="{width - pad_x}" y="{y_mid + 4}" '
+                f'font-family={_FONT_MONO!r} font-size="10" font-weight="600" '
+                f'fill="{_INK_FAINT}" text-anchor="end" letter-spacing="1.6">'
+                f"{note}</text>"
+            )
 
-    # Footer.
-    footer_y = pad_outer + title_block_h + rows * row_h + 32
+    # ---- FOOTER ----------------------------------------------------------
     parts.append(
-        f'<text x="{pad_outer + 36}" y="{footer_y}" font-size="11" '
-        f'fill="{_TEXT_MUTED}">'
-        f"{RUNS} runs · Python {py_ver} · pydantic {pyd_ver} · "
-        f"synthetic data · benchmarks/bench.py</text>"
+        f'<line x1="{pad_x}" y1="500" x2="{width - pad_x}" y2="500" '
+        f'stroke="{_HAIRLINE}" stroke-width="1"/>'
+    )
+    parts.append(
+        f'<text x="{pad_x}" y="526" font-family={_FONT_MONO!r} '
+        f'font-size="11" fill="{_INK_FAINT}" letter-spacing="0.6">'
+        f"python {py_ver}  ·  pydantic {pyd_ver}  ·  "
+        f"{N_ROWS:,} rows  ·  {RUNS} runs  ·  synthetic data</text>"
     )
 
     parts.append("</svg>")
-    return "\n".join(parts)
+    return "".join(parts)
 
 
 def main() -> None:
@@ -230,7 +235,8 @@ def main() -> None:
     svg = render_svg(results)
     _OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     _OUTPUT.write_text(svg)
-    print(f"wrote {_OUTPUT.relative_to(Path.cwd())}  ({len(svg):,} bytes)")
+    rel = _OUTPUT.relative_to(Path.cwd())
+    print(f"wrote {rel}  ({len(svg):,} bytes)")
 
 
 if __name__ == "__main__":

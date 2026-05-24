@@ -1,11 +1,11 @@
-<h1 align="center">drf-fastserializers</h1>
+# drf-fastserializers
 
-<p align="center"><strong>DRF serializers, pydantic-core inside.</strong></p>
+**DRF serializers, pydantic-core inside.**
 
-<p align="center">
+<p>
   <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg">
   <img alt="Python" src="https://img.shields.io/badge/python-3.12%2B-blue.svg">
-  <img alt="pydantic" src="https://img.shields.io/badge/pydantic-v2%20%7C%20v3-e92063.svg">
+  <img alt="pydantic" src="https://img.shields.io/badge/pydantic-v2%20%7C%20v3-7c3aed.svg">
   <img alt="Django" src="https://img.shields.io/badge/Django-5%2B-44b78b.svg">
   <img alt="DRF" src="https://img.shields.io/badge/DRF-3.14%2B-334155.svg">
   <a href="https://github.com/astral-sh/ruff"><img alt="ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"></a>
