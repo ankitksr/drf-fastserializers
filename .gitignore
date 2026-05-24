@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Build artifacts
+build/
+dist/
+wheels/
+*.egg-info/
+
+# uv / venv
+.venv/
+
+# Test / cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# IDE
+.vscode/
+.idea/
+.zed/
+*.swp
+.DS_Store
+uv.lock

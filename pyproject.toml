@@ -1,0 +1,88 @@
+[project]
+name = "drf-fastserializers"
+version = "0.1.0"
+description = "Drop-in pydantic-powered serializers for Django REST Framework. 2-3x faster on large payloads."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Ankit Singh", email = "ankitksrdev@gmail.com" },
+]
+requires-python = ">=3.12"
+keywords = [
+    "django",
+    "djangorestframework",
+    "drf",
+    "pydantic",
+    "serializer",
+    "performance",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Framework :: Django",
+    "Framework :: Django :: 5.0",
+    "Framework :: Pydantic",
+    "Framework :: Pydantic :: 2",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydantic>=2.7,<4",
+    "djangorestframework>=3.14",
+]
+
+[project.urls]
+Homepage = "https://github.com/ankitksr/drf-fastserializers"
+Repository = "https://github.com/ankitksr/drf-fastserializers"
+Issues = "https://github.com/ankitksr/drf-fastserializers/issues"
+Changelog = "https://github.com/ankitksr/drf-fastserializers/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+    "django>=5.0",
+    "pytest>=8.0",
+    "pytest-django>=4.8",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["uv_build>=0.10.5,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "drf_fastserializers"
+module-root = "src"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "SIM", # simplify
+    "N",   # pep8-naming
+    "C4",  # comprehensions
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests bind dynamically-created classes to PascalCase locals (e.g. Fast = from_drf(...)).
+"tests/*.py" = ["N806"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "tests.settings"
+python_files = ["test_*.py"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
