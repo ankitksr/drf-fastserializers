@@ -1,6 +1,6 @@
 [project]
 name = "drf-fastserializers"
-version = "0.2.2"
+version = "0.2.3"
 description = "Drop-in pydantic-powered serializers for Django REST Framework. 2-3x faster on large payloads."
 readme = "README.md"
 license = "MIT"

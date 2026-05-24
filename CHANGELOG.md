@@ -7,13 +7,19 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.2.2] - 2026-05-25
+## [0.2.3] - 2026-05-25
 
 ### Changed
-- README on PyPI now shows live PyPI version and monthly download
-  badges.
+- README on PyPI now shows a live PyPI version badge.
 - Dependabot enabled for `github-actions` and `pip` (monthly grouped
   PRs).
+- Publish workflow pins `astral-sh/setup-uv@v8.1.0` (the action has no
+  floating `v8` major tag).
+
+### Note
+- Skipped `0.2.2`: the tag was created but its CI run failed before
+  upload, so the version was never published. Continuing at `0.2.3` to
+  keep PyPI history monotonic.
 
 ## [0.2.1] - 2026-05-25
 
