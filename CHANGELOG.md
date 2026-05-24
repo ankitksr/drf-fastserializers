@@ -5,7 +5,21 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] (0.2.0.dev)
+## [Unreleased]
+
+## [0.2.1] - 2026-05-25
+
+### Fixed
+- README benchmark image now uses an absolute `raw.githubusercontent.com`
+  URL so it renders on the PyPI project page (relative `docs/bench.svg`
+  was broken there).
+
+### Changed
+- Releases now publish from GitHub Actions via PyPI trusted publishing
+  (OIDC, no long-lived tokens). Tag push to `v*` triggers test → build
+  → publish + GitHub Release with auto-generated notes.
+
+## [0.2.0] - 2026-05-25
 
 ### Added
 - `from_model(DjangoModel, fields=...)` derives a `FastSerializer`
@@ -27,7 +41,7 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   via `model_json_schema()`.
 - `RawJSONBytes` exposed for type hints around custom parsers.
 
-## [0.1.0] Initial
+## [0.1.0] - 2026-05-24
 - `FastSerializer` is the pydantic-backed schema base.
 - `FastJSONRenderer` is a DRF renderer that dispatches `FastPayload` to
   `TypeAdapter.dump_json` (Rust), falling back to stock `JSONRenderer`

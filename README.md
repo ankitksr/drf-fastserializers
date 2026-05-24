@@ -3,6 +3,8 @@
 **DRF serializers, pydantic-core inside.**
 
 <p>
+  <a href="https://pypi.org/project/drf-fastserializers/"><img alt="PyPI" src="https://img.shields.io/pypi/v/drf-fastserializers.svg?color=0073b7"></a>
+  <a href="https://pypi.org/project/drf-fastserializers/"><img alt="Downloads" src="https://static.pepy.tech/badge/drf-fastserializers/month"></a>
   <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg">
   <img alt="Python" src="https://img.shields.io/badge/python-3.12%2B-blue.svg">
   <img alt="pydantic" src="https://img.shields.io/badge/pydantic-v2%20%7C%20v3-7c3aed.svg">
