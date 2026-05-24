@@ -18,20 +18,25 @@ Rust render fast path; un-annotated getters fall back to `Any` with a
 runtime warning. SMFs that hit the ORM remain the caller's
 responsibility — prefetch / annotate at the queryset level to avoid N+1.
 
-DRF fields with overridden `to_representation` still have no mechanical
-equivalent; the helper raises `MigrationError` naming the offending
-field. Convert those manually using pydantic's `@computed_field`, then
-exclude them from `from_drf`.
+`ReadOnlyField` maps to `Any` (no type info to extract). Reverse-FK /
+M2M `RelatedManager`s on list-typed fields are auto-coerced via `.all()`
+so the prefetch cache is honored.
+
+DRF fields with overridden `to_representation` and no scalar mapping
+have no mechanical equivalent; the helper raises `MigrationError`
+naming the offending field. Add them to `exclude=` and redeclare on
+the resulting `FastSerializer`.
 """
 
+import types
 import warnings
 from collections.abc import Callable
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Any, get_type_hints
+from typing import Any, Union, get_args, get_origin, get_type_hints
 from uuid import UUID
 
-from pydantic import AliasPath, Field, computed_field, create_model
+from pydantic import AliasPath, Field, computed_field, create_model, field_validator
 from rest_framework import serializers as drf
 
 from .serializer import FastSerializer
@@ -66,6 +71,11 @@ _SCALAR_MAP: dict[type[drf.Field], type] = {
     drf.HyperlinkedIdentityField: str,
     drf.HyperlinkedRelatedField: str,
     drf.SlugRelatedField: str,
+    # ReadOnlyField carries no type info (used heavily for `.annotate()`
+    # columns and model properties); Any is the honest mapping. Output
+    # for these fields routes through pydantic's slower Python path
+    # since there's no Rust-side type to validate against.
+    drf.ReadOnlyField: Any,  # type: ignore[dict-item]
 }
 
 
@@ -108,6 +118,7 @@ def from_drf(
 
     fields: dict[str, tuple[Any, Any]] = {}
     method_getters: dict[str, Callable[[Any], Any]] = {}
+    list_field_names: list[str] = []
     for field_name, field in instance.fields.items():
         if field_name in skip:
             continue
@@ -120,9 +131,25 @@ def from_drf(
             continue
         py_type, py_field = _map_field(field_name, field)
         fields[field_name] = (py_type, py_field)
+        if _is_list_type(py_type):
+            list_field_names.append(field_name)
 
+    # Django's reverse FK / M2M `RelatedManager` shows up as the raw
+    # attribute on prefetched parents. List-typed fields need it coerced
+    # to a queryset (via `.all()`) before pydantic iterates it, otherwise
+    # iteration bypasses the prefetch cache and triggers extra queries
+    # (or fails validation outright on stricter pydantic builds).
+    validators = {
+        f"_fs_coerce_manager_{n}": _make_manager_coercer(n)
+        for n in list_field_names
+    }
     cls_name = name or f"{serializer_cls.__name__}Fast"
-    base = create_model(cls_name, __base__=FastSerializer, **fields)
+    base = create_model(
+        cls_name,
+        __base__=FastSerializer,
+        __validators__=validators or None,
+        **fields,
+    )
     if method_getters:
         base._fs_method_getters = method_getters  # type: ignore[attr-defined]
     if not computed:
@@ -264,6 +291,44 @@ def _map_field(field_name: str, field: drf.Field) -> tuple[Any, Any]:
             f"manually on the resulting FastSerializer."
         )
     return _wrap_optional(py_type, field), _field_info(field, field_name)
+
+
+def _is_list_type(annotation: Any) -> bool:
+    """Detect `list[T]`, `list[T] | None`, `Optional[list[T]]` shapes.
+
+    Used during from_drf to decide which fields need the Django Manager
+    coercion validator attached.
+    """
+    origin = get_origin(annotation)
+    if origin is list:
+        return True
+    if origin is Union or origin is types.UnionType:
+        return any(_is_list_type(a) for a in get_args(annotation))
+    return False
+
+
+def _make_manager_coercer(field_name: str) -> Any:
+    """Build a `field_validator(mode="before")` that calls `.all()` on Django Managers.
+
+    Coerces `RelatedManager` (reverse FK / M2M with prefetch) to a queryset
+    before pydantic's list validation walks it. No-op for any other type,
+    so non-Django callers pay only one `isinstance` check per validation.
+    The Django import is lazy so the lib still imports without Django on
+    the path (DRF transitively requires it, but defensively cheap).
+    """
+
+    @field_validator(field_name, mode="before")
+    @classmethod
+    def _coerce(cls: Any, v: Any) -> Any:
+        try:
+            from django.db.models import Manager
+        except ImportError:
+            return v
+        if isinstance(v, Manager):
+            return v.all()
+        return v
+
+    return _coerce
 
 
 def _resolve_scalar(field: drf.Field) -> type | None:

@@ -207,6 +207,7 @@ stops trying, the warning goes away, and the endpoint stays on DRF.
 | `IPAddressField`, `FileField`, `ImageField` | `str` |
 | `ChoiceField` | `str` |
 | `JSONField` | `Any` |
+| `ReadOnlyField` | `Any` (no type info to extract; output renders as-is) |
 | `DictField`, `HStoreField` | `dict` |
 | `ListField(child=X)` | `list[mapped(X)]` |
 | `Serializer(...)` (nested) | nested `FastSerializer` (recursive) |

@@ -7,6 +7,23 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-25
+
+### Added
+- `ReadOnlyField` now maps to `Any` in `from_drf` instead of raising
+  `MigrationError`. Lets serializers that surface `.annotate()` columns
+  or model properties translate without `exclude=(...)` boilerplate.
+  The field still renders correctly; the output path is slower than for
+  fields with a concrete type, since `Any` bypasses Rust-side type
+  validation.
+- Django `RelatedManager` is auto-coerced via `.all()` on list-typed
+  fields. Pydantic's `from_attributes=True` would otherwise see the raw
+  manager (the reverse-FK / M2M attribute on a parent) and either fail
+  list validation outright or iterate the manager directly, bypassing
+  the prefetch cache and triggering an extra query. A
+  `field_validator(mode="before")` is attached only to fields whose
+  resolved pydantic type is `list[T]` or `list[T] | None`.
+
 ## [0.3.0] - 2026-05-25
 
 ### Added
